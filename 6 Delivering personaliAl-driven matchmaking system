@@ -1,0 +1,38 @@
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import linear_kernel
+from surprise import Dataset, Reader, SVD
+from surprise.model_selection import train_test_split
+
+# Load data
+movies = pd.read_csv("movies.csv")  # columns: movieId, title, genres
+ratings = pd.read_csv("ratings.csv")  # columns: userId, movieId, rating
+
+# --- Content-Based Filtering ---
+tfidf = TfidfVectorizer(stop_words='english')
+movies['genres'] = movies['genres'].fillna('')
+tfidf_matrix = tfidf.fit_transform(movies['genres'])
+
+cosine_sim = linear_kernel(tfidf_matrix, tfidf_matrix)
+movie_indices = pd.Series(movies.index, index=movies['title']).drop_duplicates()
+
+def content_recommendations(title, top_n=5):
+    idx = movie_indices[title]
+    sim_scores = list(enumerate(cosine_sim[idx]))
+    sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)[1:top_n+1]
+    movie_indices_sim = [i[0] for i in sim_scores]
+    return movies['title'].iloc[movie_indices_sim]
+
+# --- Collaborative Filtering using Surprise SVD ---
+reader = Reader(rating_scale=(0, 5))
+data = Dataset.load_from_df(ratings[['userId', 'movieId', 'rating']], reader)
+trainset, testset = train_test_split(data, test_size=0.2)
+
+algo = SVD()
+algo.fit(trainset)
+
+def hybrid_recommend(user_id, title, top_n=5):
+    content_recs = content_recommendations(title, top_n=20)
+    content_ids = movies[movies['title'].isin(content_recs)].movieId.values
+    preds = [(mid, algo.predict(user_id, mid).est) for mid in content_ids]
+    preds_sorted = sorted(preds,_
